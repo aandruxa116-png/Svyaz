@@ -79,6 +79,7 @@ test('failed send retains text and reuses ID on retry; legacy ciphertext never a
  const id=await page.locator('[data-retry]').getAttribute('data-retry');
  await page.context().setOffline(false);await page.locator('[data-retry]').click();
  await expect(page.locator('[data-retry]')).toHaveCount(0,{timeout:30000});
+ await expect.poll(async()=> (await sdk.getDocs(sdk.collection(storeB,'chats',chatId,'messages'))).docs.filter(d=>d.data().text==='Сохранить при ошибке').length,{timeout:30000}).toBe(1);
  const messages=await sdk.getDocs(sdk.collection(storeB,'chats',chatId,'messages'));
  assert.equal(messages.docs.filter(d=>d.data().text==='Сохранить при ошибке').length,1);
  assert.equal(messages.docs.find(d=>d.data().text==='Сохранить при ошибке').id,id);
