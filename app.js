@@ -209,7 +209,7 @@ $('createForm').onsubmit=async e=>{
    if(!current(token,uid))return;
    const ref=fs.doc(fs.collection(db,'chats'));
    await fs.setDoc(ref,{type:'group',title:name,members,owner:uid,createdAt:fs.serverTimestamp(),updatedAt:fs.serverTimestamp(),lastText:'',lastSenderId:'',lastMessageId:''});
-   const s=await fs.getDocFromServer(ref);if(!current(token,uid))return;chats.push({id:ref.id,...s.data()});selectedTab='groups';openChat(ref.id);
+   const s=await fs.getDocFromServer(ref);if(!current(token,uid))return;if(!chats.some(c=>c.id===ref.id))chats.push({id:ref.id,...s.data()});selectedTab='groups';openChat(ref.id);
   }
   if(current(token,uid)){closeModal();notice('Переписка создана');}
  }catch(err){if(current(token,uid))error.textContent=explain(err);}finally{busyCreate=false;}

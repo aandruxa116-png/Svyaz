@@ -105,7 +105,7 @@ test('keyboard-sized viewport does not clip composer and back preserves unsent i
 test('web group creation and text replies retain the existing shared schema',async({page})=>{
  await login(page);await page.locator('[data-tab="groups"]').click();await page.locator('#newBtn').click();
  await page.locator('#newName').fill('Новая группа');await page.locator('#groupMembers').fill('@bob');
- await page.locator('#createForm button[type="submit"]').click();await expect(page.locator('#convName')).toHaveText('Новая группа');
+ await page.locator('#createForm button[type="submit"]').click();await expect(page.locator('#convName')).toHaveText('Новая группа');await expect(page.locator('.chatrow')).toHaveCount(1);
  await page.locator('#msgInput').fill('Сообщение в группе 👋');await page.locator('.send').click();
  await expect(page.locator('.msg.mine')).toContainText('Сообщение в группе 👋');
  const chats=await sdk.getDocs(sdk.query(sdk.collection(storeB,'chats'),sdk.where('members','array-contains',b.uid)));
