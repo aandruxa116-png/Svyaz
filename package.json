@@ -1,0 +1,17 @@
+{
+  "name": "svyaz-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/data.test.mjs",
+    "test:browser": "playwright test",
+    "test:build-sdk": "node tests/build-sdk.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@firebase/rules-unit-testing": "4.0.1",
+    "firebase": "11.10.0",
+    "firebase-tools": "14.22.0",
+    "esbuild": "0.25.10"
+  }
+}

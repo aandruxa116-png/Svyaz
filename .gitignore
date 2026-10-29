@@ -1,0 +1,6 @@
+node_modules/
+tests/.sdk/
+playwright-report/
+test-results/
+.firebase/
+*-debug.log
