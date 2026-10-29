@@ -43,7 +43,7 @@ function authMessage(t,good=false){$('authMessage').textContent=t;$('authMessage
 function switchAuth(next){mode=next;$('authHeading').textContent=authTexts[next][0];$('authSubmit').textContent=authTexts[next][1];$('authDescription').textContent=next==='login'?'Войди по email, чтобы открыть свой мессенджер.':next==='register'?'Создай аккаунт и переписывайся с людьми.':'Введи email, чтобы сбросить пароль.';
  $('authNameWrap').hidden=next!=='register';$('authConfirmWrap').hidden=next!=='register';$('authPasswordWrap').hidden=next==='reset';$('authPassword').required=next!=='reset';$('authConfirm').required=next==='register';$('authPassword').autocomplete=next==='register'?'new-password':'current-password';$('authForgot').hidden=next==='reset';$('authSwitch').textContent=next==='login'?'Создать аккаунт':'Уже есть аккаунт? Войти';authMessage('');}
 $('authSwitch').onclick=()=>switchAuth(mode==='login'?'register':'login');$('authForgot').onclick=()=>switchAuth('reset');switchAuth('login');
-function showAuth(){ $('authGate').hidden=false;$('profileGate').hidden=true; $('app').style.visibility='hidden'; $('authSubmit').disabled=!readySdk; }
+function showAuth(){ authMessage('');$('authGate').hidden=false;$('profileGate').hidden=true; $('app').style.visibility='hidden'; $('authSubmit').disabled=!readySdk; }
 function showOnboarding(){ $('profileForm').hidden=false;$('retryProfile').hidden=true; $('authGate').hidden=true;$('profileGate').hidden=false;$('app').style.visibility='hidden';$('onboardNotice').textContent='';$('profileDisplayName').value=auth?.currentUser?.displayName||''; }
 function showApplication(){ $('authGate').hidden=true;$('profileGate').hidden=true;$('app').style.visibility='visible';renderList(); }
 function current(token,uid){return token===userGeneration && user?.uid===uid && auth?.currentUser?.uid===uid;}
@@ -60,7 +60,7 @@ async function loadSession(nextUser){
  const token=++userGeneration;
  if(history.state?.svyazChat)history.replaceState(null,'');
  cleanupListeners();closeConversation();chats=[];profileCache.clear();drafts.clear();outbox.clear();lastMessages=[];chatsConfirmed=false;profile=null;user=nextUser;++searchRequest;
- $('msgInput').value='';$('authPassword').value='';$('authConfirm').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('list').replaceChildren();
+ document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';$('authEmail').value='';$('authName').value='';$('msgInput').value='';$('authPassword').value='';$('authConfirm').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('list').replaceChildren();
  selectedTab='chats';searchValue='';$('search').value='';
  if(!user){showAuth();renderList();return;}
  // Authenticated users may not have chosen their public @name yet.

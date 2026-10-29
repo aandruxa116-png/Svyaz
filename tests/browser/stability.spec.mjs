@@ -90,7 +90,7 @@ test('logout clears old messages, input and profile before another user signs in
  await page.locator('#back').click();await page.locator('[data-tab="settings"]').click();
  await expect(page.locator('.profilehero')).toContainText(a.email);
  page.once('dialog',dialog=>dialog.accept());await page.locator('#logoutSetting').click();
- await expect(page.locator('#authGate')).toBeVisible();await expect(page.locator('#messages')).toBeEmpty();await expect(page.locator('#msgInput')).toHaveValue('');
+ await expect(page.locator('#authGate')).toBeVisible();await expect(page.locator('#messages')).toBeEmpty();await expect(page.locator('#msgInput')).toHaveValue('');await expect(page.locator('#authEmail')).toHaveValue('');
  await expect(page.locator('#list')).not.toContainText(a.email);
  await page.locator('#authEmail').fill(b.email);await page.locator('#authPassword').fill(password);await page.locator('#authSubmit').click();
  await expect(page.locator('.chatrow')).toBeVisible();await page.locator('[data-tab="settings"]').click();
