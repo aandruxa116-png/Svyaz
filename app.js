@@ -57,10 +57,11 @@ function closeConversation(){
  $('app').classList.remove('inchat');$('conversation').classList.remove('active');$('welcome').style.display='block';
 }
 async function loadSession(nextUser){
+ const accountChanged=user?.uid!==nextUser?.uid;
  const token=++userGeneration;
  if(history.state?.svyazChat)history.replaceState(null,'');
  cleanupListeners();closeConversation();chats=[];profileCache.clear();drafts.clear();outbox.clear();lastMessages=[];chatsConfirmed=false;profile=null;user=nextUser;++searchRequest;
- document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';$('authEmail').value='';$('authName').value='';$('msgInput').value='';$('authPassword').value='';$('authConfirm').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('list').replaceChildren();
+ document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';if(accountChanged){$('authEmail').value='';$('authName').value='';$('authPassword').value='';$('authConfirm').value='';}$('msgInput').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('list').replaceChildren();
  selectedTab='chats';searchValue='';$('search').value='';
  if(!user){showAuth();renderList();return;}
  // Authenticated users may not have chosen their public @name yet.
@@ -301,7 +302,7 @@ if(missing){authMessage('Не заполнены настройки firebaseConf
   const firebaseApp=appModule.initializeApp(firebaseConfig);
   auth=authModule.getAuth(firebaseApp);db=firestoreModule.getFirestore(firebaseApp);
   auth.languageCode='ru';readySdk=true;$('authSubmit').disabled=false;authMessage('');
-  authModule.onAuthStateChanged(auth,next=>{if(!authBusy){loadSession(next).catch(e=>authMessage(explain(e))) }},e=>authMessage(explain(e)));
+  authModule.onAuthStateChanged(auth,next=>{if(next?.uid!==auth.currentUser?.uid)return;if(!authBusy){loadSession(next).catch(e=>authMessage(explain(e))) }},e=>authMessage(explain(e)));
  }catch(err){console.error('Firebase init:',err);authMessage('Не удалось загрузить Firebase. Проверь интернет, используй HTTPS и повтори. '+explain(err));$('authSubmit').disabled=false;}
 })();
 })();

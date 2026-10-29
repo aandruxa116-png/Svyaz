@@ -35,7 +35,7 @@ test.beforeEach(async()=>{
 });
 test.afterEach(async()=>{for(const app of [appA,appB]){await sdk.terminate(sdk.getFirestore(app));await deleteApp(app);}});
 test.afterAll(async()=>{await env.cleanup();});
-async function login(page,person=a,hasProfile=true){
+async function login(page,person=a,hasProfile=true,waitForInitialAuth=false){
  // Any attempted production network access is a test failure; SDK modules are served only by the fixture server.
  await page.route('**/*',route=>{
   const url=new URL(route.request().url());
@@ -44,7 +44,12 @@ async function login(page,person=a,hasProfile=true){
  });
  await page.goto('/');
  await expect(page.locator('#authSubmit')).toBeEnabled();
- await page.locator('#authEmail').fill(person.email);await page.locator('#authPassword').fill(password);await page.locator('#authSubmit').click();
+ await page.locator('#authEmail').fill(person.email);await page.locator('#authPassword').fill(password);
+ if(waitForInitialAuth){
+  await expect.poll(()=>page.evaluate(()=>globalThis.__testInitialAuthDelivered)).toBe(true);
+  await expect(page.locator('#authEmail')).toHaveValue(person.email);await expect(page.locator('#authPassword')).toHaveValue(password);
+ }
+ await page.locator('#authSubmit').click();
  if(hasProfile)await expect(page.locator('.chatrow')).toBeVisible();else await expect(page.locator('#profileGate')).toBeVisible();
 }
 async function open(page){await page.locator('.chatrow').first().click();await expect(page.locator('#conversation')).toHaveClass(/active/);}
@@ -123,4 +128,10 @@ test('onboarding rejects an occupied handle and creates a new profile without ov
   await expect.poll(async()=> (await sdk.getDocFromServer(sdk.doc(fresh.store,'users',fresh.uid))).data()?.handle).toBe('new_dave');
   assert.equal((await sdk.getDocFromServer(sdk.doc(storeB,'handles/bob'))).data().uid,b.uid);
  }finally{await sdk.terminate(fresh.store);await deleteApp(fresh.app);}
+});
+
+test('delayed initial signed-out notification does not erase credentials being typed',async({page})=>{
+ await page.addInitScript(()=>{globalThis.__testInitialAuthDelay=1500;});
+ await login(page,a,true,true);
+ await expect(page.locator('.chatrow')).toBeVisible();
 });
