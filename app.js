@@ -304,4 +304,3 @@ if(missing){authMessage('Не заполнены настройки firebaseConf
  }catch(err){console.error('Firebase init:',err);authMessage('Не удалось загрузить Firebase. Проверь интернет, используй HTTPS и повтори. '+explain(err));$('authSubmit').disabled=false;}
 })();
 })();
-

@@ -101,3 +101,13 @@ test('keyboard-sized viewport does not clip composer; switching chats cannot car
  await page.locator('#msgInput').fill('draft for this chat');await page.locator('#back').click();
  await open(page);await expect(page.locator('#msgInput')).toHaveValue('draft for this chat');
 });
+test('web group creation and text replies retain the existing shared schema',async({page})=>{
+ await login(page);await page.locator('[data-tab="groups"]').click();await page.locator('#newBtn').click();
+ await page.locator('#newName').fill('Новая группа');await page.locator('#groupMembers').fill('@bob');
+ await page.locator('#createForm button[type="submit"]').click();await expect(page.locator('#convName')).toHaveText('Новая группа');
+ await page.locator('#msgInput').fill('Сообщение в группе 👋');await page.locator('.send').click();
+ await expect(page.locator('.msg.mine')).toContainText('Сообщение в группе 👋');
+ const chats=await sdk.getDocs(sdk.query(sdk.collection(storeB,'chats'),sdk.where('members','array-contains',b.uid)));
+ const group=chats.docs.find(d=>d.data().type==='group');expect(group).toBeTruthy();
+ await expect.poll(async()=> (await sdk.getDocs(sdk.collection(storeB,'chats',group.id,'messages'))).size).toBe(1);
+});
