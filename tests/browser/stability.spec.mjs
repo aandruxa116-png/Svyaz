@@ -96,9 +96,9 @@ test('logout clears old messages, input and profile before another user signs in
  await expect(page.locator('.chatrow')).toBeVisible();await page.locator('[data-tab="settings"]').click();
  await expect(page.locator('.profilehero')).toContainText(b.email);await expect(page.locator('.profilehero')).not.toContainText(a.email);
 });
-test('keyboard-sized viewport does not clip composer; switching chats cannot carry another chat input',async({page})=>{
+test('keyboard-sized viewport does not clip composer and back preserves unsent input',async({page})=>{
  await login(page);await open(page);await page.setViewportSize({width:360,height:340});
- const box=await page.locator('#msgInput').boundingBox();expect(box.y+box.height).toBeLessThanOrEqual(341);
+ await expect.poll(async()=>{const box=await page.locator('#msgInput').boundingBox();return box.y+box.height;}).toBeLessThanOrEqual(341);
  await page.locator('#msgInput').fill('draft for this chat');await page.locator('#back').click();
  await open(page);await expect(page.locator('#msgInput')).toHaveValue('draft for this chat');
 });
