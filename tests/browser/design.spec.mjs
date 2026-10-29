@@ -31,10 +31,11 @@ test.afterAll(async()=>{await env.cleanup();});
 async function visit(page,base='/'){
  await page.route('**/*',route=>['127.0.0.1','localhost'].includes(new URL(route.request().url()).hostname)?route.continue():route.abort());
  await page.goto(base);await expect(page.locator('#authSubmit')).toBeEnabled();
+ await page.addStyleTag({content:'*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}'});
 }
 async function login(page){
  await page.locator('#authEmail').fill(a.email);await page.locator('#authPassword').fill(password);await page.locator('#authSubmit').click();
- await expect(page.locator('.chatrow')).toHaveCount(2);
+ await expect(page.locator('.chatrow')).toHaveCount(2);await expect(page.locator('.chatrow').filter({hasText:'Марк Волков'})).toBeVisible();
 }
 async function capture(page,testInfo,name){
  const bytes=await page.screenshot({path:testInfo.outputPath(name+'.png'),animations:'disabled'});
