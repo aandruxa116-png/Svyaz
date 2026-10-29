@@ -35,7 +35,7 @@ test.beforeEach(async()=>{
 });
 test.afterEach(async()=>{for(const app of [appA,appB]){await sdk.terminate(sdk.getFirestore(app));await deleteApp(app);}});
 test.afterAll(async()=>{await env.cleanup();});
-async function login(page,person=a){
+async function login(page,person=a,hasProfile=true){
  // Any attempted production network access is a test failure; SDK modules are served only by the fixture server.
  await page.route('**/*',route=>{
   const url=new URL(route.request().url());
@@ -45,7 +45,7 @@ async function login(page,person=a){
  await page.goto('/');
  await expect(page.locator('#authSubmit')).toBeEnabled();
  await page.locator('#authEmail').fill(person.email);await page.locator('#authPassword').fill(password);await page.locator('#authSubmit').click();
- await expect(page.locator('.chatrow')).toBeVisible();
+ if(hasProfile)await expect(page.locator('.chatrow')).toBeVisible();else await expect(page.locator('#profileGate')).toBeVisible();
 }
 async function open(page){await page.locator('.chatrow').first().click();await expect(page.locator('#conversation')).toHaveClass(/active/);}
 test('mobile send/receive retains new input, sender side and scroll; browser back returns to chat list',async({page})=>{
@@ -111,4 +111,16 @@ test('web group creation and text replies retain the existing shared schema',asy
  const chats=await sdk.getDocs(sdk.query(sdk.collection(storeB,'chats'),sdk.where('members','array-contains',b.uid)));
  const group=chats.docs.find(d=>d.data().type==='group');expect(group).toBeTruthy();
  await expect.poll(async()=> (await sdk.getDocs(sdk.collection(storeB,'chats',group.id,'messages'))).size).toBe(1);
+});
+
+test('onboarding rejects an occupied handle and creates a new profile without overwriting anyone',async({page})=>{
+ const fresh=await client('dave');
+ try{
+  await login(page,fresh,false);await page.locator('#profileDisplayName').fill('Давид');await page.locator('#profileHandle').fill('bob');
+  await page.locator('#onboardSubmit').click();await expect(page.locator('#onboardNotice')).toContainText('занято');
+  await page.locator('#profileHandle').fill('new_dave');await page.locator('#onboardSubmit').click();
+  await expect(page.locator('#profileGate')).toBeHidden();
+  await expect.poll(async()=> (await sdk.getDocFromServer(sdk.doc(fresh.store,'users',fresh.uid))).data()?.handle).toBe('new_dave');
+  assert.equal((await sdk.getDocFromServer(sdk.doc(storeB,'handles/bob'))).data().uid,b.uid);
+ }finally{await sdk.terminate(fresh.store);await deleteApp(fresh.app);}
 });

@@ -94,6 +94,7 @@ async function signOut(){if(!auth)return;if(!confirm('Выйти из аккау
 // ----- Public usernames, linked atomically to a private Auth UID -----
 $('profileForm').onsubmit=async e=>{
  e.preventDefault();if(!user||!fs)return;
+ const uid=user.uid,token=userGeneration;
  const handle=$('profileHandle').value.trim().toLowerCase().replace(/^@/,'');const displayName=$('profileDisplayName').value.trim();
  if(!/^[a-z0-9_]{3,20}$/.test(handle)){$('onboardNotice').textContent='Имя @ должно быть 3–20 символов: латинские буквы, цифры, подчёркивание.';return;}
  if(displayName.length<1||displayName.length>45){$('onboardNotice').textContent='Введи отображаемое имя длиной до 45 символов.';return;}
