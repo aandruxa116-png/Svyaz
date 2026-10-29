@@ -36,7 +36,10 @@ async function login(page){
  await page.locator('#authEmail').fill(a.email);await page.locator('#authPassword').fill(password);await page.locator('#authSubmit').click();
  await expect(page.locator('.chatrow')).toHaveCount(2);
 }
-async function capture(page,testInfo,name){await page.screenshot({path:testInfo.outputPath(name+'.png'),animations:'disabled'});}
+async function capture(page,testInfo,name){
+ const bytes=await page.screenshot({path:testInfo.outputPath(name+'.png'),animations:'disabled'});
+ if(process.env.DESIGN_PREVIEWS==='1'&&['before-mobile-03-chats','after-mobile-03-chats','after-mobile-04-conversation','after-mobile-05-profile'].includes(name))console.log('SVYAZ_PREVIEW|web-'+name+'|'+bytes.toString('base64'));
+}
 test('before and after screens use the same synthetic accounts and real UI',async({browser},testInfo)=>{
  test.setTimeout(120000);await access('tests/.baseline/index.html');
  for(const [size,viewport] of [['mobile',{width:390,height:844}],['desktop',{width:1280,height:900}]]){

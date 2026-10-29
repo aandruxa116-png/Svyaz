@@ -27,6 +27,8 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - name: Real browser and SDK with synthetic Auth/Firestore only
+        env:
+          DESIGN_PREVIEWS: '1'
         run: node_modules/.bin/firebase emulators:exec --only auth,firestore --project demo-svyaz --config firebase.test.json 'npm run test:browser'
       - uses: actions/upload-artifact@v4
         if: always()
