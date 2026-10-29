@@ -10,6 +10,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Unchanged stage 1 main for before screenshots
+        uses: actions/checkout@v4
+        with:
+          ref: 610dd8289921df58caa05c50670c4385a0be86c9
+          path: tests/.baseline
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -23,7 +29,7 @@ jobs:
       - name: Real browser and SDK with synthetic Auth/Firestore only
         run: node_modules/.bin/firebase emulators:exec --only auth,firestore --project demo-svyaz --config firebase.test.json 'npm run test:browser'
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: web-test-results
+          name: web-stage2-screenshots-and-tests
           path: test-results/

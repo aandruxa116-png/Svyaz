@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openPrivate, sendText, createProfile, visibleText, compareMessages } from '../data.js';
+import { openPrivate, sendText, createProfile, visibleText, compareMessages, editProfile, initials, avatarColor } from '../data.js';
 function fake(documents = {}) {
   const writes = [];
   const sdk = {
@@ -9,6 +9,7 @@ function fake(documents = {}) {
     runTransaction: async (_db, update) => update({
       get: async ref => ({ exists: () => !!documents[ref], data: () => documents[ref] }),
       set: (ref, data) => { writes.push(['set', ref, data]); documents[ref] = data; },
+      delete: ref => { writes.push(['delete',ref]); delete documents[ref]; },
       update: (ref, data) => { writes.push(['update', ref, data]); documents[ref] = { ...documents[ref], ...data }; }
     })
   };
@@ -55,4 +56,20 @@ test('ordering includes nanoseconds and document ID tie breaker',()=>{
   const a={id:'z',createdAt:{seconds:1,nanoseconds:1}}, b={id:'a',createdAt:{seconds:1,nanoseconds:2}};
   assert.deepEqual([b,a].sort(compareMessages),[a,b]);
   assert.deepEqual([{...a,id:'z'},{...a,id:'a'}].sort(compareMessages).map(m=>m.id),['a','z']);
+});
+
+test('profile editing atomically renames the handle without changing protected fields',async()=>{
+ const f=fake({'users/alice':{handle:'alice',displayName:'Old',createdAt:1,legacy:'keep'},'handles/alice':{uid:'alice'}});
+ await editProfile(f.sdk,{},'alice',' Анна ','@anna_new');
+ assert.deepEqual(f.documents['users/alice'],{handle:'anna_new',displayName:'Анна',createdAt:1,legacy:'keep'});
+ assert.equal(f.documents['handles/alice'],undefined);assert.deepEqual(f.documents['handles/anna_new'],{uid:'alice'});
+});
+test('an occupied handle leaves the profile and old claim untouched',async()=>{
+ const f=fake({'users/alice':{handle:'alice'},'handles/bob':{uid:'bob'}});
+ await assert.rejects(editProfile(f.sdk,{},'alice','Alice','bob'),/занят/);assert.equal(f.writes.length,0);
+});
+
+test('initials preserve Cyrillic and complete emoji and avatar colors are stable',()=>{
+ assert.equal(initials(' Анна Смирнова '),'АС');assert.equal(initials('👩‍💻 Разработчик'),'👩Р');assert.equal(initials(''),'С');
+ assert.equal(avatarColor('Анна Смирнова'),avatarColor('Анна Смирнова'));
 });

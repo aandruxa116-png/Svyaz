@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/data.test.mjs",
+    "test": "node tests/data.test.mjs && node tests/brand.test.mjs",
     "test:browser": "playwright test",
     "test:build-sdk": "node tests/build-sdk.mjs"
   },
