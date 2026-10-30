@@ -146,8 +146,9 @@ test('long history pages keep order, scroll anchor, retries and isolate a late p
   batch.set(sdk.doc(store,'chats/group-other'),{type:'group',title:'Другая группа',members:[a.uid,b.uid],owner:a.uid,createdAt:sdk.serverTimestamp(),updatedAt:sdk.serverTimestamp(),lastText:'',lastSenderId:'',lastMessageId:''});
   await batch.commit();
  });
- await login(page);await page.addStyleTag({content:'.msg{animation:none!important;transition:none!important}'});await page.locator('.chatrow').filter({hasText:'bob'}).click();
+ await login(page);await page.locator('.chatrow').filter({hasText:'bob'}).click();
  await expect(page.locator('.msg')).toHaveCount(100);
+ await page.locator('#messages').evaluate(async el=>{await Promise.all(el.getAnimations({subtree:true}).map(a=>a.finished.catch(()=>{})));});
  await page.locator('#messages').evaluate(el=>el.scrollTop=0);
  const anchor=page.locator('[data-message-id="history-065"]');
  const before=(await anchor.boundingBox()).y;
@@ -164,13 +165,13 @@ test('long history pages keep order, scroll anchor, retries and isolate a late p
  await expect(page.locator('#messages')).not.toContainText('E2EEv7.synthetic');
  // Reopen the live window, start an old page, then switch to an unrelated group.
  await page.locator('#back').click();await page.locator('.chatrow').filter({hasText:'bob'}).click();await expect(page.locator('.msg')).toHaveCount(100);
- await page.evaluate(()=>{globalThis.__testHistoryDelay=1200;globalThis.__testHistoryReadStarted=false;});
+ await page.evaluate(()=>{globalThis.__testHistoryDelay=1200;globalThis.__testHistoryReadStarted=false;globalThis.__testHistoryReadFinished=false;});
  await page.locator('#messages').evaluate(el=>el.scrollTop=0);await page.locator('#loadOlder').click();
  await expect.poll(()=>page.evaluate(()=>globalThis.__testHistoryReadStarted)).toBe(true);
  await page.locator('#back').click();await page.locator('.chatrow').filter({hasText:'Другая группа'}).click();
  await expect(page.locator('.history-status')).toContainText('Начало переписки');
  await expect.poll(()=>page.locator('.msg').count()).toBe(0);
- await page.waitForTimeout(1500);await expect(page.locator('.msg')).toHaveCount(0);
+ await expect.poll(()=>page.evaluate(()=>globalThis.__testHistoryReadFinished)).toBe(true);await expect(page.locator('.msg')).toHaveCount(0);
 });
 
 test('search, per-chat drafts, display settings and logout work together',async({page})=>{

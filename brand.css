@@ -17,3 +17,5 @@ html{font-size:16px}body{line-height:1.5}button,input,textarea{font:inherit}butt
 body.large-messages .msg{font-size:1.25rem}.history-status{text-align:center;color:var(--muted);font-size:.8rem;padding:8px;overflow-anchor:none}.messages{overflow-anchor:none}
 
 .history-status{min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+.msg.stable-msg{animation:none}

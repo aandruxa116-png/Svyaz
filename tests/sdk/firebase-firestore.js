@@ -12,6 +12,6 @@ export async function getDocsFromServer(query) {
   const delay=globalThis.__testHistoryDelay||0;
   if(delay)globalThis.__testHistoryReadStarted=true;
   const result=await readServer(query);
-  if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
+  if(delay){await new Promise(resolve=>setTimeout(resolve,delay));globalThis.__testHistoryReadFinished=true;}
   return result;
 }

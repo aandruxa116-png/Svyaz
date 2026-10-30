@@ -293,12 +293,13 @@ function renderMessages(messages,keepPosition=false){
  const outstanding=[...outbox.values()].filter(m=>m.chatId===activeChat&&!messages.some(x=>x.id===m.id));
  const rows=[...messages,...outstanding].sort(compareMessages);
  const anchor=[...area.querySelectorAll('[data-message-id]')].find(el=>el.getBoundingClientRect().bottom>area.getBoundingClientRect().top+48);const anchorId=anchor?.dataset.messageId,anchorOffset=anchor?anchor.getBoundingClientRect().top-area.getBoundingClientRect().top:0;
+ const existingIds=new Set([...area.querySelectorAll('[data-message-id]')].map(el=>el.dataset.messageId));
  const previous=area.dataset.lastId,newest=rows.at(-1);const follow=!keepPosition&&(nearBottom||!previous||(newest?.id!==previous&&newest?.senderId===user?.uid));
  const top=area.scrollTop;
  area.innerHTML=`<div class="history-status" role="status">${historyLoading?'Загружаем историю…':hasOlder?'<button type="button" class="action" id="loadOlder">Загрузить более старые сообщения</button>':historyError?'<button type="button" class="action" id="retryHistory">Повторить загрузку</button>':historyInitialized?'Начало переписки':'Загружаем сообщения…'}${historyError?`<p>${escapeHtml(historyError)}</p>`:''}</div>`+rows.map(m=>{
   const mine=m.senderId===user?.uid,p=profileCache.get(m.senderId),failed=m.status==='failed',pending=m.pending||m.status==='sending';
   const sender=mine?'':`<div class="sender">${escapeHtml(p?.displayName||(m.senderId?.slice(0,6)||'Участник'))}</div>`;
-  return `<div class="msg ${mine?'mine':''}" data-message-id="${escapeHtml(m.id)}">${sender}${escapeHtml(visibleText(m.text))}<small title="Сохранено — подтверждено сервером, не означает доставку или прочтение">${escapeHtml(dateText(m.createdAt,true))}${failed?' · Не отправлено':pending?' · Отправляем…':mine?' · Сохранено':''}</small>${failed?`<button type="button" class="action" data-retry="${escapeHtml(m.id)}">Повторить</button>`:''}</div>`;
+  return `<div class="msg ${mine?'mine':''} ${keepPosition||existingIds.has(m.id)?'stable-msg':''}" data-message-id="${escapeHtml(m.id)}">${sender}${escapeHtml(visibleText(m.text))}<small title="Сохранено — подтверждено сервером, не означает доставку или прочтение">${escapeHtml(dateText(m.createdAt,true))}${failed?' · Не отправлено':pending?' · Отправляем…':mine?' · Сохранено':''}</small>${failed?`<button type="button" class="action" data-retry="${escapeHtml(m.id)}">Повторить</button>`:''}</div>`;
  }).join('');
  area.dataset.lastId=newest?.id||'';
  const restored=anchorId?[...area.querySelectorAll('[data-message-id]')].find(el=>el.dataset.messageId===anchorId):null;
