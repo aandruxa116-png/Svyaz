@@ -1,4 +1,4 @@
-import { visibleText, normalizeHandle, openPrivate, sendText, createProfile, compareMessages, editProfile, initials, avatarColor } from './data.js';
+import { visibleText, normalizeHandle, openPrivate, sendText, createProfile, compareMessages, editProfile, initials, avatarColor, compareChats, matchesChat } from './data.js';
 
 
 // Связь v5: веб-приложение с Firebase Authentication + Firestore.
@@ -18,6 +18,8 @@ const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':
 let auth=null,db=null,authSDK=null,fs=null,readySdk=false;
 let user=null,profile=null,profileCache=new Map(),chats=[],activeChat=null,selectedTab='chats',searchValue='';
 let profileSubscriptions=new Map(),outbox=new Map(),drafts=new Map(),lastMessages=[],chatGeneration=0,searchRequest=0,chatsConfirmed=false,chatsError='';
+let historyRows=new Map(),oldestDoc=null,hasOlder=false,historyLoading=false,historyInitialized=false,historyError='';
+let enterSends=localStorage.getItem('svyaz_v5_enter_send')!=='false';
 let unsubChats=null,unsubMessages=null,authBusy=false,mode='login',userGeneration=0,createType='private',busyCreate=false;
 const authTexts={login:['Вход в аккаунт','Войти'],register:['Создать аккаунт','Зарегистрироваться'],reset:['Восстановление пароля','Отправить письмо']};
 const authErrors={
@@ -53,9 +55,9 @@ function renderLiveList(){if(selectedTab!=='contacts')renderList();}
 $('retryProfile').onclick=()=>loadSession(auth?.currentUser);
 function cleanupListeners(){ profileSubscriptions.forEach(stop=>stop());profileSubscriptions.clear(); if(unsubChats){unsubChats();unsubChats=null;} if(unsubMessages){unsubMessages();unsubMessages=null;} }
 function closeConversation(){
- if(activeChat)drafts.set(activeChat,$('msgInput').value);
+ if(activeChat&&chats.some(c=>c.id===activeChat))drafts.set(activeChat,$('msgInput').value);
  ++chatGeneration;if(unsubMessages){unsubMessages();unsubMessages=null;}
- activeChat=null;lastMessages=[];$('messages').replaceChildren();$('msgInput').value='';$('convName').textContent='';$('convStatus').textContent='';$('convAvatar').textContent='';
+ activeChat=null;lastMessages=[];historyRows.clear();oldestDoc=null;hasOlder=false;historyLoading=false;historyInitialized=false;historyError='';delete $('messages').dataset.lastId;$('messages').replaceChildren();$('msgInput').value='';$('convName').textContent='';$('convStatus').textContent='';$('convAvatar').textContent='';
  $('app').classList.remove('inchat');$('conversation').classList.remove('active');$('welcome').style.display='block';
 }
 async function loadSession(nextUser){
@@ -63,7 +65,7 @@ async function loadSession(nextUser){
  const token=++userGeneration;
  if(history.state?.svyazChat)history.replaceState(null,'');
  cleanupListeners();closeConversation();chats=[];profileCache.clear();drafts.clear();outbox.clear();lastMessages=[];chatsConfirmed=false;profile=null;user=nextUser;++searchRequest;
- document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';if(accountChanged){$('authEmail').value='';$('authName').value='';$('authPassword').value='';$('authConfirm').value='';}$('msgInput').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('editProfileDialog').close();chatsError='';$('list').replaceChildren();
+ document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';if(accountChanged){$('authEmail').value='';$('authName').value='';$('authPassword').value='';$('authConfirm').value='';}$('msgInput').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('editProfileDialog').close();$('editName').value='';$('editHandle').value='';$('editError').textContent='';$('editAvatar').textContent='';chatsError='';$('list').replaceChildren();
  selectedTab='chats';searchValue='';$('search').value='';
  if(!user){showAuth();renderList();return;}
  // Authenticated users may not have chosen their public @name yet.
@@ -93,7 +95,7 @@ $('authForm').onsubmit=async e=>{
   } else {const cred=await authSDK.signInWithEmailAndPassword(auth,email,password); await loadSession(cred.user);}
  }catch(err){authMessage(explain(err));if(auth?.currentUser?.uid!==user?.uid)await loadSession(auth.currentUser);}finally{authBusy=false;$('authSubmit').classList.remove('is-loading');$('authPassword').value='';$('authConfirm').value='';$('authSubmit').disabled=false;}
 };
-async function signOut(){if(!auth)return;if(!confirm('Выйти из аккаунта? Неотправленные сообщения в памяти будут потеряны.'))return;try{await authSDK.signOut(auth);await loadSession(null);}catch(err){notice(explain(err))}}
+async function signOut(){if(!auth)return;if(!confirm('Выйти из аккаунта? Черновики и неотправленные сообщения в памяти будут потеряны.'))return;try{await authSDK.signOut(auth);await loadSession(null);}catch(err){notice(explain(err))}}
 // ----- Public usernames, linked atomically to a private Auth UID -----
 $('profileForm').onsubmit=async e=>{
  e.preventDefault();if(!user||!fs)return;
@@ -133,8 +135,17 @@ function watchProfile(peer,token,uid){
 }
 function chatName(c){if(c.type==='group')return c.title||'Группа'; const other=c.members.find(uid=>uid!==user?.uid);const p=profileCache.get(other);return p?.displayName || (other?'Пользователь '+other.slice(0,5):'Личный чат');}
 function chatSub(c){if(c.type==='group')return 'Группа · '+c.members.length+' участников';const other=c.members.find(uid=>uid!==user?.uid);const p=profileCache.get(other);return p?'@'+p.handle:'Личный чат';}
-function dateText(ts){if(!ts||!ts.toDate)return '';const d=ts.toDate();return d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});}
-function sortedChats(){return [...chats].sort((a,b)=>(b.updatedAt?.toMillis?.()||0)-(a.updatedAt?.toMillis?.()||0));}
+function dateText(ts,full=false){
+ if(!ts||!ts.toDate)return '';const d=ts.toDate(),today=new Date();
+ const date=full||d.toDateString()!==today.toDateString();
+ return d.toLocaleString('ru-RU',{...(date?{day:'2-digit',month:'2-digit',...(d.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})}:{}),...(full||!date?{hour:'2-digit',minute:'2-digit'}:{})});
+}
+function sortedChats(){return [...chats].sort(compareChats);}
+function chatPreview(c){
+ if(drafts.get(c.id))return 'Черновик: '+drafts.get(c.id);
+ const failed=[...outbox.values()].filter(m=>m.chatId===c.id&&m.status==='failed').length;
+ return failed?'Не отправлено: '+failed:visibleText(c.lastText||chatSub(c));
+}
 function renderList(){
  const titles={chats:'СООБЩЕНИЯ',groups:'ТВОИ ГРУППЫ',contacts:'ПОИСК ЛЮДЕЙ',settings:'ТВОЙ ПРОФИЛЬ'};
  $('sectionTitle').textContent=titles[selectedTab];
@@ -142,8 +153,8 @@ function renderList(){
  $('searchWrap').style.display=['chats','groups'].includes(selectedTab)?'flex':'none';
  $('newBtn').style.display=['chats','groups'].includes(selectedTab)?'block':'none';
  if(selectedTab==='settings'){
-  $('list').innerHTML=`<div class="profile"><div class="profilehero"><div class="avatar green" style="background:${avatarColor(profile?.displayName||'Я')}">${escapeHtml(initials(profile?.displayName||'Я'))}</div><h2>${escapeHtml(profile?.displayName||'Профиль')}</h2><p class="profile-handle">@${escapeHtml(profile?.handle||'')}</p><p>${escapeHtml(auth?.currentUser?.email||'')}</p></div><button class="setting" id="themeSetting"><span>☾ &nbsp; Тема оформления<small>Светлая или тёмная</small></span><span class="pill">${document.body.classList.contains('light')?'Светлая':'Тёмная'}</span></button><button class="setting" id="renameSetting"><span>✎ &nbsp; Редактировать профиль<small>Имя и уникальный никнейм</small></span><span>›</span></button><button class="setting important" id="logoutSetting"><span>↪ &nbsp; Выйти из аккаунта<small>Потребуется войти по email</small></span><span>›</span></button><p class="contentNote">Сообщения Firestore хранятся в облаке и доступны участникам чата. Сквозное шифрование не используется.</p></div>`;
-  $('themeSetting').onclick=toggleTheme;$('logoutSetting').onclick=signOut;$('renameSetting').onclick=renameProfile;return;
+  $('list').innerHTML=`<div class="profile"><div class="profilehero"><div class="avatar green" style="background:${avatarColor(profile?.displayName||'Я')}">${escapeHtml(initials(profile?.displayName||'Я'))}</div><h2>${escapeHtml(profile?.displayName||'Профиль')}</h2><p class="profile-handle">@${escapeHtml(profile?.handle||'')}</p><p>${escapeHtml(auth?.currentUser?.email||'')}</p></div><button class="setting" id="themeSetting"><span>☾ &nbsp; Тема оформления<small>Светлая или тёмная</small></span><span class="pill">${document.body.classList.contains('light')?'Светлая':'Тёмная'}</span></button><button class="setting" id="messageSizeSetting" aria-pressed="${document.body.classList.contains('large-messages')}"><span>Размер текста сообщений<small>${document.body.classList.contains('large-messages')?'Крупный':'Обычный'}</small></span><span>›</span></button><button class="setting" id="enterSetting" aria-pressed="${enterSends}"><span>Enter отправляет сообщение<small>${enterSends?'Включено':'Выключено'} · только на компьютере; Shift+Enter — новая строка</small></span><span>›</span></button><button class="setting" id="renameSetting"><span>✎ &nbsp; Редактировать профиль<small>Имя и уникальный никнейм</small></span><span>›</span></button><button class="setting important" id="logoutSetting"><span>↪ &nbsp; Выйти из аккаунта<small>Потребуется войти по email</small></span><span>›</span></button><p class="contentNote">Сообщения Firestore хранятся в облаке и доступны участникам чата. Сквозное шифрование не используется.</p></div>`;
+  $('messageSizeSetting').onclick=()=>{localStorage.setItem('svyaz_v5_large_messages',String(!document.body.classList.contains('large-messages')));applyPreferences();renderList();};$('enterSetting').onclick=()=>{enterSends=!enterSends;localStorage.setItem('svyaz_v5_enter_send',String(enterSends));renderList();};$('themeSetting').onclick=toggleTheme;$('logoutSetting').onclick=signOut;$('renameSetting').onclick=renameProfile;return;
  }
  if(selectedTab==='contacts'){
   $('list').innerHTML=`<div class="searchPerson"><label for="peopleInput">Найди человека по точному @имени (email не показывается)</label><input id="peopleInput" placeholder="Например, anna_12" autocomplete="off"><button id="findPersonBtn">Найти пользователя</button></div><div id="personResult" class="inlineStatus">Попроси друга назвать своё @имя после регистрации.</div>`;
@@ -155,10 +166,11 @@ function renderList(){
   $('list').innerHTML=chatsError?`<div class="state-panel"><h2>Не удалось загрузить чаты</h2><p>${escapeHtml(chatsError)}</p><button id="retryChats" class="action primary">Повторить загрузку</button></div>`:'<div class="state-panel" role="status"><span class="state-spinner" aria-hidden="true"></span><h2>Загружаем чаты</h2><p>Подключаемся к вашим разговорам…</p></div>';
   if(chatsError)$('retryChats').onclick=()=>{chatsError='';subscribeChats();renderList();};return;
  }
- const filtered=sortedChats().filter(c=>selectedTab==='groups'?c.type==='group':true).filter(c=>chatName(c).toLocaleLowerCase('ru').includes(searchValue.toLocaleLowerCase('ru')));
- $('list').innerHTML=filtered.length?filtered.map(c=>`<button class="chatrow ${activeChat===c.id?'selected':''}" data-id="${escapeHtml(c.id)}"><div class="avatar ${c.type==='group'?'violet':'green'}" style="background:${avatarColor(chatName(c))}">${escapeHtml(initials(chatName(c)))}</div><div class="chatmeta"><div class="chatline"><span class="chatname">${escapeHtml(chatName(c))}</span><span class="chatdate">${escapeHtml(dateText(c.updatedAt))}</span></div><div class="preview">${escapeHtml(visibleText(c.lastText||chatSub(c)))}</div></div></button>`).join(''):(searchValue?'<div class="state-panel"><h2>Ничего не найдено</h2><p>Попробуйте другое имя в поиске.</p></div>':'<div class="state-panel"><img src="./assets/brand/icon.svg" alt=""><h2>Первый разговор — впереди</h2><p>Найдите человека по @никнейму во вкладке «Люди» или нажмите «+».</p></div>');
+ const filtered=sortedChats().filter(c=>selectedTab==='groups'?c.type==='group':true).filter(c=>matchesChat(searchValue,chatName(c),c.type==='private'?chatSub(c):'',c.lastText));
+ $('list').innerHTML=filtered.length?filtered.map(c=>`<button class="chatrow ${activeChat===c.id?'selected':''}" data-id="${escapeHtml(c.id)}"><div class="avatar ${c.type==='group'?'violet':'green'}" style="background:${avatarColor(chatName(c))}">${escapeHtml(initials(chatName(c)))}</div><div class="chatmeta"><div class="chatline"><span class="chatname">${escapeHtml(chatName(c))}</span><span class="chatdate">${escapeHtml(dateText(c.updatedAt))}</span></div><div class="preview">${escapeHtml(chatPreview(c))}</div></div></button>`).join(''):(searchValue?'<div class="state-panel"><h2>Ничего не найдено</h2><p>Попробуйте другое имя в поиске.</p></div>':'<div class="state-panel"><img src="./assets/brand/icon.svg" alt=""><h2>Первый разговор — впереди</h2><p>Найдите человека по @никнейму во вкладке «Люди» или нажмите «+».</p></div>');
  document.querySelectorAll('.chatrow').forEach(b=>b.onclick=()=>openChat(b.dataset.id));
 }
+function applyPreferences(){document.body.classList.toggle('large-messages',localStorage.getItem('svyaz_v5_large_messages')==='true');}
 function applyTheme(){const light=localStorage.getItem('svyaz_v5_theme')==='light';document.body.classList.toggle('light',light);$('themeQuick').textContent=light?'☀':'☾';document.querySelector('meta[name="theme-color"]').content=light?'#eef4fa':'#0b1422';}
 function toggleTheme(){localStorage.setItem('svyaz_v5_theme',document.body.classList.contains('light')?'dark':'light');applyTheme();renderList();}
 function renameProfile(){
@@ -196,6 +208,9 @@ function subscribeChats(){
   if(!snap.metadata.isFromCache)chatsConfirmed=true;
   chatsError='';
   chats=snap.docs.map(d=>({id:d.id,...d.data()})).filter(c=>Array.isArray(c.members)&&c.members.includes(uid));
+  const allowed=new Set(chats.map(c=>c.id));
+  for(const id of drafts.keys())if(!allowed.has(id))drafts.delete(id);
+  for(const [id,m] of outbox)if(!allowed.has(m.chatId))outbox.delete(id);
   if(activeChat&&!chats.some(c=>c.id===activeChat))closeConversation();
   const wanted=new Set([uid,...chats.flatMap(c=>c.members)]);
   for(const [peer,stop] of profileSubscriptions)if(!wanted.has(peer)){stop();profileSubscriptions.delete(peer);profileCache.delete(peer);}
@@ -238,36 +253,58 @@ document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{++searchRequest;c
 $('search').oninput=()=>{searchValue=$('search').value;renderList();};$('themeQuick').onclick=toggleTheme;
 function updateChatHeader(){const c=chats.find(x=>x.id===activeChat);if(!c)return;$('convName').textContent=chatName(c);$('convStatus').textContent=chatSub(c);$('convAvatar').textContent=initials(chatName(c));$('convAvatar').style.background=avatarColor(chatName(c));}
 function openChat(id){
- const c=chats.find(x=>x.id===id);if(!c||!user)return;
+ const c=chats.find(x=>x.id===id);if(!c||!user||auth?.currentUser?.uid!==user.uid)return;
  if(window.innerWidth<=700&&!history.state?.svyazChat)history.pushState({svyazChat:true},'');
  closeConversation();activeChat=id;const chatToken=++chatGeneration,token=userGeneration,uid=user.uid;let confirmed=false;
- $('msgInput').value=drafts.get(id)||'';$('msgInput').dispatchEvent(new Event('input'));$('composer').querySelector('.send').disabled=false;
+ $('msgInput').value=drafts.get(id)||'';$('msgInput').setSelectionRange($('msgInput').value.length,$('msgInput').value.length);$('msgInput').dispatchEvent(new Event('input'));$('composer').querySelector('.send').disabled=false;
  $('app').classList.add('inchat');$('welcome').style.display='none';$('conversation').classList.add('active');$('convAvatar').className='avatar '+(c.type==='group'?'violet':'green');updateChatHeader();$('messages').innerHTML='<div class="inlineStatus">Загружаем сообщения…</div>';renderLiveList();
  const q=fs.query(fs.collection(db,'chats',id,'messages'),fs.orderBy('createdAt','asc'),fs.orderBy(fs.documentId(),'asc'),fs.limitToLast(100));
  unsubMessages=fs.onSnapshot(q,{includeMetadataChanges:true},snap=>{
   if(!current(token,uid)||chatToken!==chatGeneration||activeChat!==id)return;
   if(snap.metadata.isFromCache&&!confirmed)return;if(!snap.metadata.isFromCache)confirmed=true;
-  lastMessages=snap.docs.map(d=>({id:d.id,...d.data(),pending:d.metadata.hasPendingWrites}));
+  if(!historyInitialized){oldestDoc=snap.docs[0]||null;hasOlder=snap.size===100;historyInitialized=true;}
+  for(const d of snap.docs)historyRows.set(d.id,{id:d.id,...d.data(),pending:d.metadata.hasPendingWrites});
+  lastMessages=[...historyRows.values()];historyError='';
   for(const m of lastMessages)if(!m.pending)outbox.delete(m.id);
   renderMessages(lastMessages);
  },err=>{
   if(!current(token,uid)||chatToken!==chatGeneration)return;
-  if(err.code==='permission-denied'){lastMessages=[];$('messages').replaceChildren();}
+  if(err.code==='permission-denied'||err.code==='unauthenticated'){lastMessages=[];historyRows.clear();hasOlder=false;for(const [key,m] of outbox)if(m.chatId===id)outbox.delete(key);drafts.delete(id);$('messages').replaceChildren();}
+  historyError=explain(err);
   notice(explain(err));renderMessages(lastMessages);
  });
 }
-function renderMessages(messages){
+async function loadOlder(){
+ if(!activeChat||!oldestDoc||historyLoading||!hasOlder)return;
+ const id=activeChat,token=userGeneration,uid=user.uid,chatToken=chatGeneration,cursor=oldestDoc;
+ historyLoading=true;historyError='';renderMessages(lastMessages,true);
+ try{
+  const q=fs.query(fs.collection(db,'chats',id,'messages'),fs.orderBy('createdAt','asc'),fs.orderBy(fs.documentId(),'asc'),fs.endBefore(cursor),fs.limitToLast(50));
+  const page=await fs.getDocsFromServer(q);
+  if(!current(token,uid)||chatToken!==chatGeneration||activeChat!==id)return;
+  for(const d of page.docs){historyRows.set(d.id,{id:d.id,...d.data(),pending:d.metadata.hasPendingWrites});if(!d.metadata.hasPendingWrites&&outbox.get(d.id)?.chatId===id)outbox.delete(d.id);}
+  if(page.docs.length)oldestDoc=page.docs[0];hasOlder=page.size===50;
+  lastMessages=[...historyRows.values()];renderLiveList();
+ }catch(error){if(current(token,uid)&&chatToken===chatGeneration)historyError=explain(error);}
+ finally{if(current(token,uid)&&chatToken===chatGeneration){historyLoading=false;renderMessages(lastMessages,true);}}
+}
+function renderMessages(messages,keepPosition=false){
  if(!activeChat)return;const area=$('messages'),nearBottom=area.scrollHeight-area.scrollTop-area.clientHeight<80;
  const outstanding=[...outbox.values()].filter(m=>m.chatId===activeChat&&!messages.some(x=>x.id===m.id));
  const rows=[...messages,...outstanding].sort(compareMessages);
- const previous=area.dataset.lastId,newest=rows.at(-1);const follow=nearBottom||!previous||(newest?.id!==previous&&newest?.senderId===user?.uid);
+ const anchor=[...area.querySelectorAll('[data-message-id]')].find(el=>el.getBoundingClientRect().bottom>area.getBoundingClientRect().top+48);const anchorId=anchor?.dataset.messageId,anchorOffset=anchor?anchor.getBoundingClientRect().top-area.getBoundingClientRect().top:0;
+ const existingIds=new Set([...area.querySelectorAll('[data-message-id]')].map(el=>el.dataset.messageId));
+ const previous=area.dataset.lastId,newest=rows.at(-1);const follow=!keepPosition&&(nearBottom||!previous||(newest?.id!==previous&&newest?.senderId===user?.uid));
  const top=area.scrollTop;
- area.innerHTML='<div class="daylabel">Последние 100 сообщений</div>'+rows.map(m=>{
+ area.innerHTML=`<div class="history-status" role="status">${historyLoading?'Загружаем историю…':hasOlder?'<button type="button" class="action" id="loadOlder">Загрузить более старые сообщения</button>':historyError?'<button type="button" class="action" id="retryHistory">Повторить загрузку</button>':historyInitialized?'Начало переписки':'Загружаем сообщения…'}${historyError?`<p>${escapeHtml(historyError)}</p>`:''}</div>`+rows.map(m=>{
   const mine=m.senderId===user?.uid,p=profileCache.get(m.senderId),failed=m.status==='failed',pending=m.pending||m.status==='sending';
   const sender=mine?'':`<div class="sender">${escapeHtml(p?.displayName||(m.senderId?.slice(0,6)||'Участник'))}</div>`;
-  return `<div class="msg ${mine?'mine':''}" data-message-id="${escapeHtml(m.id)}">${sender}${escapeHtml(visibleText(m.text))}<small>${escapeHtml(dateText(m.createdAt))}${failed?' · Не отправлено':pending?' · Отправляем…':mine?' ✓':''}</small>${failed?`<button type="button" class="action" data-retry="${escapeHtml(m.id)}">Повторить</button>`:''}</div>`;
+  return `<div class="msg ${mine?'mine':''} ${keepPosition||existingIds.has(m.id)?'stable-msg':''}" data-message-id="${escapeHtml(m.id)}">${sender}${escapeHtml(visibleText(m.text))}<small title="Сохранено — подтверждено сервером, не означает доставку или прочтение">${escapeHtml(dateText(m.createdAt,true))}${failed?' · Не отправлено':pending?' · Отправляем…':mine?' · Сохранено':''}</small>${failed?`<button type="button" class="action" data-retry="${escapeHtml(m.id)}">Повторить</button>`:''}</div>`;
  }).join('');
- area.dataset.lastId=newest?.id||'';area.scrollTop=follow?area.scrollHeight:top;
+ area.dataset.lastId=newest?.id||'';
+ const restored=anchorId?[...area.querySelectorAll('[data-message-id]')].find(el=>el.dataset.messageId===anchorId):null;
+ area.scrollTop=follow?area.scrollHeight:restored?area.scrollTop+restored.getBoundingClientRect().top-area.getBoundingClientRect().top-anchorOffset:top;
+ const older=area.querySelector('#loadOlder');if(older)older.onclick=loadOlder;const retryHistory=area.querySelector('#retryHistory');if(retryHistory)retryHistory.onclick=()=>openChat(activeChat);
  area.querySelectorAll('[data-retry]').forEach(button=>button.onclick=()=>{const message=outbox.get(button.dataset.retry);if(message)transmit(message);});
 }
 $('back').onclick=()=>{if(history.state?.svyazChat)history.back();else{closeConversation();renderList();}};
@@ -276,7 +313,7 @@ $('infoBtn').onclick=()=>{const c=chats.find(x=>x.id===activeChat);if(c)notice(c
 async function transmit(message){
  const token=message.session,uid=message.senderId;if(!current(token,uid)||message.inFlight)return;
  message.inFlight=true;message.status='sending';outbox.set(message.id,message);
- if(!navigator.onLine){message.inFlight=false;message.status='failed';if(activeChat===message.chatId)renderMessages(lastMessages);notice('Нет соединения. Сообщение сохранено для повторной отправки.');return;}
+ if(!navigator.onLine){message.inFlight=false;message.status='failed';renderLiveList();if(activeChat===message.chatId)renderMessages(lastMessages);notice('Нет соединения. Сообщение сохранено для повторной отправки.');return;}
  if(activeChat===message.chatId)renderMessages(lastMessages);
  try{
   await sendText(fs,db,uid,message.chatId,message);
@@ -289,7 +326,7 @@ async function transmit(message){
   if(outbox.has(message.id)){message.status='failed';notice('Не отправлено. Проверьте интернет и нажмите «Повторить».');}
  }finally{
   message.inFlight=false;
-  if(current(token,uid)&&activeChat===message.chatId)renderMessages(lastMessages);
+  if(current(token,uid)){renderLiveList();if(activeChat===message.chatId)renderMessages(lastMessages);}
  }
 }
 $('composer').onsubmit=e=>{
@@ -301,12 +338,12 @@ $('composer').onsubmit=e=>{
  input.value='';input.style.height='';drafts.delete(activeChat);transmit(message);
 };
 $('msgInput').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,110)+'px';if(activeChat)drafts.set(activeChat,e.target.value);});
-$('msgInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&window.innerWidth>700){e.preventDefault();$('composer').requestSubmit();}});
+$('msgInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&enterSends&&!e.shiftKey&&!e.isComposing&&window.innerWidth>700){e.preventDefault();$('composer').requestSubmit();}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if($('modalBack').classList.contains('open'))closeModal();else if(activeChat){closeConversation();renderList();}}});
 function fitViewport(){const viewport=window.visualViewport;document.documentElement.style.setProperty('--app-height',(viewport?.height||window.innerHeight)+'px');}
 window.visualViewport?.addEventListener('resize',fitViewport);window.addEventListener('resize',fitViewport);fitViewport();
 
-applyTheme();showAuth();authMessage('Подключаем Firebase…',true);$('authSubmit').disabled=true;
+applyPreferences();applyTheme();showAuth();authMessage('Подключаем Firebase…',true);$('authSubmit').disabled=true;
 const missing=['apiKey','projectId','appId','authDomain'].some(k=>!firebaseConfig[k]||String(firebaseConfig[k]).includes('PASTE_'));
 if(missing){authMessage('Не заполнены настройки firebaseConfig.');$('authSetup').hidden=false;return;}
 (async()=>{

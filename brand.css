@@ -13,3 +13,9 @@ html{font-size:16px}body{line-height:1.5}button,input,textarea{font:inherit}butt
 /* Auto margins center short forms, while long registration forms keep a reachable top edge. */
 #authGate,#profileGate{align-items:flex-start}.authCard,.profileOnboard{margin-block:auto;flex-shrink:0}.authCard #authMessage:empty{margin:0;min-height:0}
 .searchResult{text-align:center}.searchResult .avatar{width:76px;height:76px;font-size:1.6rem;margin:0 auto 12px}.searchResult .handle{margin:6px 0}
+
+body.large-messages .msg{font-size:1.25rem}.history-status{text-align:center;color:var(--muted);font-size:.8rem;padding:8px;overflow-anchor:none}.messages{overflow-anchor:none}
+
+.history-status{min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+.msg.stable-msg{animation:none}

@@ -50,7 +50,7 @@ async function login(page,person=a,hasProfile=true,waitForInitialAuth=false){
   await expect(page.locator('#authEmail')).toHaveValue(person.email);await expect(page.locator('#authPassword')).toHaveValue(password);
  }
  await page.locator('#authSubmit').click();
- if(hasProfile)await expect(page.locator('.chatrow')).toBeVisible();else await expect(page.locator('#profileGate')).toBeVisible();
+ if(hasProfile)await expect(page.locator('.chatrow').first()).toBeVisible();else await expect(page.locator('#profileGate')).toBeVisible();
 }
 async function open(page){await page.locator('.chatrow').first().click();await expect(page.locator('#conversation')).toHaveClass(/active/);}
 test('mobile send/receive retains new input, sender side and scroll; browser back returns to chat list',async({page})=>{
@@ -134,4 +134,65 @@ test('delayed initial signed-out notification does not erase credentials being t
  await page.addInitScript(()=>{globalThis.__testInitialAuthDelay=1500;});
  await login(page,a,true,true);
  await expect(page.locator('.chatrow')).toBeVisible();
+});
+
+
+test('long history pages keep order, scroll anchor, retries and isolate a late page from another chat',async({page})=>{
+ test.setTimeout(120000);
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const store=ctx.firestore(),batch=sdk.writeBatch(store);
+  for(let i=0;i<165;i++)batch.set(sdk.doc(store,'chats',chatId,'messages','history-'+String(i).padStart(3,'0')),
+   {senderId:b.uid,text:i===0?'E2EEv7.synthetic':'История '+i,createdAt:new sdk.Timestamp(100+i,1)});
+  batch.set(sdk.doc(store,'chats/group-other'),{type:'group',title:'Другая группа',members:[a.uid,b.uid],owner:a.uid,createdAt:sdk.serverTimestamp(),updatedAt:sdk.serverTimestamp(),lastText:'',lastSenderId:'',lastMessageId:''});
+  await batch.commit();
+ });
+ await login(page);await page.locator('.chatrow').filter({hasText:'bob'}).click();
+ await expect(page.locator('.msg')).toHaveCount(100);
+ await page.locator('#messages').evaluate(async el=>{await Promise.all(el.getAnimations({subtree:true}).map(a=>a.finished.catch(()=>{})));});
+ await page.locator('#messages').evaluate(el=>el.scrollTop=0);
+ const anchor=page.locator('[data-message-id="history-065"]');
+ const before=(await anchor.boundingBox()).y;
+ await page.locator('#loadOlder').click();await expect(page.locator('.msg')).toHaveCount(150);
+ expect(Math.abs((await anchor.boundingBox()).y-before)).toBeLessThan(5);
+ // A failed page retains already confirmed rows and the cursor for retry.
+ await page.context().setOffline(true);await page.locator('#messages').evaluate(el=>el.scrollTop=0);
+ await page.locator('#loadOlder').click();await expect(page.locator('.history-status')).toContainText(/недоступен|интернет|offline|failed/i,{timeout:30000});
+ await expect(page.locator('.msg')).toHaveCount(150);
+ await page.context().setOffline(false);await page.locator('#loadOlder').click();await expect(page.locator('.msg')).toHaveCount(165);
+ const ids=await page.locator('.msg').evaluateAll(els=>els.map(el=>el.dataset.messageId));
+ expect(new Set(ids).size).toBe(165);expect(ids[0]).toBe('history-000');expect(ids.at(-1)).toBe('history-164');
+ await expect(page.locator('[data-message-id="history-000"]')).toContainText('Сообщение из старой версии недоступно');
+ await expect(page.locator('#messages')).not.toContainText('E2EEv7.synthetic');
+ // Reopen the live window, start an old page, then switch to an unrelated group.
+ await page.locator('#back').click();await page.locator('.chatrow').filter({hasText:'bob'}).click();await expect(page.locator('.msg')).toHaveCount(100);
+ await page.evaluate(()=>{globalThis.__testHistoryDelay=1200;globalThis.__testHistoryReadStarted=false;globalThis.__testHistoryReadFinished=false;});
+ await page.locator('#messages').evaluate(el=>el.scrollTop=0);await page.locator('#loadOlder').click();
+ await expect.poll(()=>page.evaluate(()=>globalThis.__testHistoryReadStarted)).toBe(true);
+ await page.locator('#back').click();await page.locator('.chatrow').filter({hasText:'Другая группа'}).click();
+ await expect(page.locator('.history-status')).toContainText('Начало переписки');
+ await expect.poll(()=>page.locator('.msg').count()).toBe(0);
+ await expect.poll(()=>page.evaluate(()=>globalThis.__testHistoryReadFinished)).toBe(true);await expect(page.locator('.msg')).toHaveCount(0);
+});
+
+test('search, per-chat drafts, display settings and logout work together',async({page})=>{
+ await sendText(sdk,storeB,b.uid,chatId,{id:'search-preview',text:'Встреча завтра'});
+ await login(page);
+ await page.locator('#search').fill('@bob завтра');await expect(page.locator('.chatrow')).toHaveCount(1);
+ await page.locator('#search').fill('нет совпадения');await expect(page.locator('.chatrow')).toHaveCount(0);
+ await page.locator('#search').fill('');await open(page);
+ await page.locator('#msgInput').fill('Черновик для Б');await page.locator('#back').click();
+ await expect(page.locator('.chatrow')).toContainText('Черновик: Черновик для Б');
+ await page.locator('[data-tab="settings"]').click();await page.locator('#messageSizeSetting').click();
+ await expect(page.locator('body')).toHaveClass(/large-messages/);
+ await page.locator('#enterSetting').click();await expect(page.locator('#enterSetting')).toHaveAttribute('aria-pressed','false');
+ await page.locator('[data-tab="chats"]').click();await open(page);await expect(page.locator('#msgInput')).toHaveValue('Черновик для Б');
+ await page.setViewportSize({width:1100,height:800});await page.locator('#msgInput').press('ControlOrMeta+End');await page.locator('#msgInput').press('Enter');
+ await expect(page.locator('#msgInput')).toHaveValue('Черновик для Б\n');await expect(page.locator('.msg.mine')).toHaveCount(0);
+ await page.locator('#msgInput').fill('Отправить кнопкой');await page.locator('.send').click();
+ await expect(page.locator('.msg.mine')).toContainText('Сохранено');
+ await page.keyboard.press('Escape');await page.locator('[data-tab="settings"]').click();await page.locator('#renameSetting').click();
+ page.once('dialog',d=>d.accept()); // Sign-out uses a separate confirmation, close the editor first.
+ await page.locator('#editCancel').click();await page.locator('#logoutSetting').click();
+ await expect(page.locator('#authGate')).toBeVisible();await expect(page.locator('#editName')).toHaveValue('');await expect(page.locator('#editHandle')).toHaveValue('');
+ const keys=await page.evaluate(()=>Object.keys(localStorage));expect(keys.every(key=>!key.toLowerCase().includes('draft'))).toBe(true);
 });
