@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openPrivate, sendText, createProfile, visibleText, compareMessages, editProfile, initials, avatarColor } from '../data.js';
+import { openPrivate, sendText, createProfile, visibleText, compareMessages, editProfile, initials, avatarColor, compareChats, matchesChat } from '../data.js';
 function fake(documents = {}) {
   const writes = [];
   const sdk = {
@@ -72,4 +72,14 @@ test('an occupied handle leaves the profile and old claim untouched',async()=>{
 test('initials preserve Cyrillic and complete emoji and avatar colors are stable',()=>{
  assert.equal(initials(' Анна Смирнова '),'АС');assert.equal(initials('👩‍💻 Разработчик'),'👩Р');assert.equal(initials(''),'С');
  assert.equal(avatarColor('Анна Смирнова'),avatarColor('Анна Смирнова'));
+});
+
+test('chat search uses handle and visible preview, never hidden legacy ciphertext',()=>{
+ assert.ok(matchesChat(' @BOB завтра ','Боб','bob_new','Встреча завтра'));
+ assert.ok(!matchesChat('secret','Боб','bob_new',' E2EEv9.secret'));
+ assert.ok(matchesChat('семья','Семья','',''));
+});
+test('chat activity sorting retains nanoseconds and stable IDs',()=>{
+ const a={id:'a',updatedAt:{seconds:1,nanoseconds:2}},b={id:'b',updatedAt:{seconds:1,nanoseconds:3}};
+ assert.deepEqual([{...a,id:'c'},b,a].sort(compareChats).map(c=>c.id),['b','a','c']);
 });

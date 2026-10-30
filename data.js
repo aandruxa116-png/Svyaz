@@ -84,3 +84,13 @@ export function avatarColor(name) {
   for(let i=0;i<value.length;i++)hash=(31*hash+value.charCodeAt(i))|0;
   return AVATAR_COLORS[(hash>>>0)%AVATAR_COLORS.length];
 }
+
+export function compareChats(a,b) {
+  const seconds=(b.updatedAt?.seconds??0)-(a.updatedAt?.seconds??0);
+  const nanos=(b.updatedAt?.nanoseconds??0)-(a.updatedAt?.nanoseconds??0);
+  return seconds||nanos||(a.id<b.id?-1:a.id>b.id?1:0);
+}
+export function matchesChat(query, title, handle, lastText) {
+  const text=[title,handle,visibleText(lastText)].join(' ').toLocaleLowerCase('ru');
+  return query.trim().toLocaleLowerCase('ru').split(/\s+/).filter(Boolean).every(term=>text.includes(term.replace(/^@/,'')));
+}
