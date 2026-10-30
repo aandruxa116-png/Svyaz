@@ -253,7 +253,7 @@ document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{++searchRequest;c
 $('search').oninput=()=>{searchValue=$('search').value;renderList();};$('themeQuick').onclick=toggleTheme;
 function updateChatHeader(){const c=chats.find(x=>x.id===activeChat);if(!c)return;$('convName').textContent=chatName(c);$('convStatus').textContent=chatSub(c);$('convAvatar').textContent=initials(chatName(c));$('convAvatar').style.background=avatarColor(chatName(c));}
 function openChat(id){
- const c=chats.find(x=>x.id===id);if(!c||!user)return;
+ const c=chats.find(x=>x.id===id);if(!c||!user||auth?.currentUser?.uid!==user.uid)return;
  if(window.innerWidth<=700&&!history.state?.svyazChat)history.pushState({svyazChat:true},'');
  closeConversation();activeChat=id;const chatToken=++chatGeneration,token=userGeneration,uid=user.uid;let confirmed=false;
  $('msgInput').value=drafts.get(id)||'';$('msgInput').setSelectionRange($('msgInput').value.length,$('msgInput').value.length);$('msgInput').dispatchEvent(new Event('input'));$('composer').querySelector('.send').disabled=false;
@@ -282,9 +282,9 @@ async function loadOlder(){
   const q=fs.query(fs.collection(db,'chats',id,'messages'),fs.orderBy('createdAt','asc'),fs.orderBy(fs.documentId(),'asc'),fs.endBefore(cursor),fs.limitToLast(50));
   const page=await fs.getDocsFromServer(q);
   if(!current(token,uid)||chatToken!==chatGeneration||activeChat!==id)return;
-  for(const d of page.docs)historyRows.set(d.id,{id:d.id,...d.data(),pending:false});
+  for(const d of page.docs){historyRows.set(d.id,{id:d.id,...d.data(),pending:d.metadata.hasPendingWrites});if(!d.metadata.hasPendingWrites&&outbox.get(d.id)?.chatId===id)outbox.delete(d.id);}
   if(page.docs.length)oldestDoc=page.docs[0];hasOlder=page.size===50;
-  lastMessages=[...historyRows.values()];
+  lastMessages=[...historyRows.values()];renderLiveList();
  }catch(error){if(current(token,uid)&&chatToken===chatGeneration)historyError=explain(error);}
  finally{if(current(token,uid)&&chatToken===chatGeneration){historyLoading=false;renderMessages(lastMessages,true);}}
 }
@@ -295,7 +295,7 @@ function renderMessages(messages,keepPosition=false){
  const anchor=[...area.querySelectorAll('[data-message-id]')].find(el=>el.getBoundingClientRect().bottom>area.getBoundingClientRect().top+48);const anchorId=anchor?.dataset.messageId,anchorOffset=anchor?anchor.getBoundingClientRect().top-area.getBoundingClientRect().top:0;
  const previous=area.dataset.lastId,newest=rows.at(-1);const follow=!keepPosition&&(nearBottom||!previous||(newest?.id!==previous&&newest?.senderId===user?.uid));
  const top=area.scrollTop;
- area.innerHTML=`<div class="history-status" role="status">${historyLoading?'Загружаем историю…':hasOlder?'<button type="button" class="action" id="loadOlder">Загрузить более старые сообщения</button>':historyInitialized?'Начало переписки':'Загружаем сообщения…'}${historyError?`<p>${escapeHtml(historyError)}</p>`:''}</div>`+rows.map(m=>{
+ area.innerHTML=`<div class="history-status" role="status">${historyLoading?'Загружаем историю…':hasOlder?'<button type="button" class="action" id="loadOlder">Загрузить более старые сообщения</button>':historyError?'<button type="button" class="action" id="retryHistory">Повторить загрузку</button>':historyInitialized?'Начало переписки':'Загружаем сообщения…'}${historyError?`<p>${escapeHtml(historyError)}</p>`:''}</div>`+rows.map(m=>{
   const mine=m.senderId===user?.uid,p=profileCache.get(m.senderId),failed=m.status==='failed',pending=m.pending||m.status==='sending';
   const sender=mine?'':`<div class="sender">${escapeHtml(p?.displayName||(m.senderId?.slice(0,6)||'Участник'))}</div>`;
   return `<div class="msg ${mine?'mine':''}" data-message-id="${escapeHtml(m.id)}">${sender}${escapeHtml(visibleText(m.text))}<small title="Сохранено — подтверждено сервером, не означает доставку или прочтение">${escapeHtml(dateText(m.createdAt,true))}${failed?' · Не отправлено':pending?' · Отправляем…':mine?' · Сохранено':''}</small>${failed?`<button type="button" class="action" data-retry="${escapeHtml(m.id)}">Повторить</button>`:''}</div>`;
@@ -303,7 +303,7 @@ function renderMessages(messages,keepPosition=false){
  area.dataset.lastId=newest?.id||'';
  const restored=anchorId?[...area.querySelectorAll('[data-message-id]')].find(el=>el.dataset.messageId===anchorId):null;
  area.scrollTop=follow?area.scrollHeight:restored?area.scrollTop+restored.getBoundingClientRect().top-area.getBoundingClientRect().top-anchorOffset:top;
- const older=area.querySelector('#loadOlder');if(older)older.onclick=loadOlder;
+ const older=area.querySelector('#loadOlder');if(older)older.onclick=loadOlder;const retryHistory=area.querySelector('#retryHistory');if(retryHistory)retryHistory.onclick=()=>openChat(activeChat);
  area.querySelectorAll('[data-retry]').forEach(button=>button.onclick=()=>{const message=outbox.get(button.dataset.retry);if(message)transmit(message);});
 }
 $('back').onclick=()=>{if(history.state?.svyazChat)history.back();else{closeConversation();renderList();}};
