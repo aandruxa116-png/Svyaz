@@ -256,7 +256,7 @@ function openChat(id){
  const c=chats.find(x=>x.id===id);if(!c||!user)return;
  if(window.innerWidth<=700&&!history.state?.svyazChat)history.pushState({svyazChat:true},'');
  closeConversation();activeChat=id;const chatToken=++chatGeneration,token=userGeneration,uid=user.uid;let confirmed=false;
- $('msgInput').value=drafts.get(id)||'';$('msgInput').dispatchEvent(new Event('input'));$('composer').querySelector('.send').disabled=false;
+ $('msgInput').value=drafts.get(id)||'';$('msgInput').setSelectionRange($('msgInput').value.length,$('msgInput').value.length);$('msgInput').dispatchEvent(new Event('input'));$('composer').querySelector('.send').disabled=false;
  $('app').classList.add('inchat');$('welcome').style.display='none';$('conversation').classList.add('active');$('convAvatar').className='avatar '+(c.type==='group'?'violet':'green');updateChatHeader();$('messages').innerHTML='<div class="inlineStatus">Загружаем сообщения…</div>';renderLiveList();
  const q=fs.query(fs.collection(db,'chats',id,'messages'),fs.orderBy('createdAt','asc'),fs.orderBy(fs.documentId(),'asc'),fs.limitToLast(100));
  unsubMessages=fs.onSnapshot(q,{includeMetadataChanges:true},snap=>{

@@ -146,7 +146,7 @@ test('long history pages keep order, scroll anchor, retries and isolate a late p
   batch.set(sdk.doc(store,'chats/group-other'),{type:'group',title:'Другая группа',members:[a.uid,b.uid],owner:a.uid,createdAt:sdk.serverTimestamp(),updatedAt:sdk.serverTimestamp(),lastText:'',lastSenderId:'',lastMessageId:''});
   await batch.commit();
  });
- await login(page);await page.locator('.chatrow').filter({hasText:'bob'}).click();
+ await login(page);await page.addStyleTag({content:'.msg{animation:none!important;transition:none!important}'});await page.locator('.chatrow').filter({hasText:'bob'}).click();
  await expect(page.locator('.msg')).toHaveCount(100);
  await page.locator('#messages').evaluate(el=>el.scrollTop=0);
  const anchor=page.locator('[data-message-id="history-065"]');
@@ -185,7 +185,7 @@ test('search, per-chat drafts, display settings and logout work together',async(
  await expect(page.locator('body')).toHaveClass(/large-messages/);
  await page.locator('#enterSetting').click();await expect(page.locator('#enterSetting')).toHaveAttribute('aria-pressed','false');
  await page.locator('[data-tab="chats"]').click();await open(page);await expect(page.locator('#msgInput')).toHaveValue('Черновик для Б');
- await page.setViewportSize({width:1100,height:800});await page.locator('#msgInput').press('Enter');
+ await page.setViewportSize({width:1100,height:800});await page.locator('#msgInput').press('ControlOrMeta+End');await page.locator('#msgInput').press('Enter');
  await expect(page.locator('#msgInput')).toHaveValue('Черновик для Б\n');await expect(page.locator('.msg.mine')).toHaveCount(0);
  await page.locator('#msgInput').fill('Отправить кнопкой');await page.locator('.send').click();
  await expect(page.locator('.msg.mine')).toContainText('Сохранено');
