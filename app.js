@@ -1,4 +1,4 @@
-import { visibleText, normalizeHandle, openPrivate, sendText, createProfile, compareMessages } from './data.js';
+import { visibleText, normalizeHandle, openPrivate, sendText, createProfile, compareMessages, editProfile, initials, avatarColor } from './data.js';
 
 
 // Связь v5: веб-приложение с Firebase Authentication + Firestore.
@@ -17,7 +17,7 @@ const $ = id => document.getElementById(id);
 const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let auth=null,db=null,authSDK=null,fs=null,readySdk=false;
 let user=null,profile=null,profileCache=new Map(),chats=[],activeChat=null,selectedTab='chats',searchValue='';
-let profileSubscriptions=new Map(),outbox=new Map(),drafts=new Map(),lastMessages=[],chatGeneration=0,searchRequest=0,chatsConfirmed=false;
+let profileSubscriptions=new Map(),outbox=new Map(),drafts=new Map(),lastMessages=[],chatGeneration=0,searchRequest=0,chatsConfirmed=false,chatsError='';
 let unsubChats=null,unsubMessages=null,authBusy=false,mode='login',userGeneration=0,createType='private',busyCreate=false;
 const authTexts={login:['Вход в аккаунт','Войти'],register:['Создать аккаунт','Зарегистрироваться'],reset:['Восстановление пароля','Отправить письмо']};
 const authErrors={
@@ -43,6 +43,8 @@ function authMessage(t,good=false){$('authMessage').textContent=t;$('authMessage
 function switchAuth(next){mode=next;$('authHeading').textContent=authTexts[next][0];$('authSubmit').textContent=authTexts[next][1];$('authDescription').textContent=next==='login'?'Войди по email, чтобы открыть свой мессенджер.':next==='register'?'Создай аккаунт и переписывайся с людьми.':'Введи email, чтобы сбросить пароль.';
  $('authNameWrap').hidden=next!=='register';$('authConfirmWrap').hidden=next!=='register';$('authPasswordWrap').hidden=next==='reset';$('authPassword').required=next!=='reset';$('authConfirm').required=next==='register';$('authPassword').autocomplete=next==='register'?'new-password':'current-password';$('authForgot').hidden=next==='reset';$('authSwitch').textContent=next==='login'?'Создать аккаунт':'Уже есть аккаунт? Войти';authMessage('');}
 $('authSwitch').onclick=()=>switchAuth(mode==='login'?'register':'login');$('authForgot').onclick=()=>switchAuth('reset');switchAuth('login');
+function connectionStatus(){document.querySelectorAll('[data-connection]').forEach(el=>{el.hidden=navigator.onLine;el.textContent=navigator.onLine?'':'Нет соединения. Неотправленные сообщения можно повторить.';});}
+window.addEventListener('online',connectionStatus);window.addEventListener('offline',connectionStatus);connectionStatus();
 function showAuth(){ authMessage('');$('authGate').hidden=false;$('profileGate').hidden=true; $('app').style.visibility='hidden'; $('authSubmit').disabled=!readySdk; }
 function showOnboarding(){ $('profileForm').hidden=false;$('retryProfile').hidden=true; $('authGate').hidden=true;$('profileGate').hidden=false;$('app').style.visibility='hidden';$('onboardNotice').textContent='';$('profileDisplayName').value=auth?.currentUser?.displayName||''; }
 function showApplication(){ $('authGate').hidden=true;$('profileGate').hidden=true;$('app').style.visibility='visible';renderList(); }
@@ -61,7 +63,7 @@ async function loadSession(nextUser){
  const token=++userGeneration;
  if(history.state?.svyazChat)history.replaceState(null,'');
  cleanupListeners();closeConversation();chats=[];profileCache.clear();drafts.clear();outbox.clear();lastMessages=[];chatsConfirmed=false;profile=null;user=nextUser;++searchRequest;
- document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';if(accountChanged){$('authEmail').value='';$('authName').value='';$('authPassword').value='';$('authConfirm').value='';}$('msgInput').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('list').replaceChildren();
+ document.querySelector('.notice')?.remove();$('onboardNotice').textContent='';if(accountChanged){$('authEmail').value='';$('authName').value='';$('authPassword').value='';$('authConfirm').value='';}$('msgInput').value='';$('newName').value='';$('groupMembers').value='';$('profileHandle').value='';$('profileDisplayName').value='';closeModal();$('editProfileDialog').close();chatsError='';$('list').replaceChildren();
  selectedTab='chats';searchValue='';$('search').value='';
  if(!user){showAuth();renderList();return;}
  // Authenticated users may not have chosen their public @name yet.
@@ -79,7 +81,7 @@ $('authForm').onsubmit=async e=>{
  if(!readySdk){authMessage('Firebase ещё загружается. Проверь интернет и попробуй открыть сайт через HTTPS.');return;}
  const email=$('authEmail').value.trim(),password=$('authPassword').value;
  if(mode==='register' && password!==$('authConfirm').value){authMessage('Пароли не совпадают.');return;}
- authBusy=true;$('authSubmit').disabled=true;authMessage('');
+ authBusy=true;$('authSubmit').classList.add('is-loading');$('authSubmit').disabled=true;authMessage('');
  try{
   if(mode==='reset'){await authSDK.sendPasswordResetEmail(auth,email);authMessage('Если для адреса доступно восстановление, письмо отправлено. Проверь почту.',true);}
   else if(mode==='register'){
@@ -89,7 +91,7 @@ $('authForm').onsubmit=async e=>{
    try{await authSDK.sendEmailVerification(cred.user)}catch(e){console.warn('Email verification',e)}
    await loadSession(cred.user);
   } else {const cred=await authSDK.signInWithEmailAndPassword(auth,email,password); await loadSession(cred.user);}
- }catch(err){authMessage(explain(err));if(auth?.currentUser?.uid!==user?.uid)await loadSession(auth.currentUser);}finally{authBusy=false;$('authPassword').value='';$('authConfirm').value='';$('authSubmit').disabled=false;}
+ }catch(err){authMessage(explain(err));if(auth?.currentUser?.uid!==user?.uid)await loadSession(auth.currentUser);}finally{authBusy=false;$('authSubmit').classList.remove('is-loading');$('authPassword').value='';$('authConfirm').value='';$('authSubmit').disabled=false;}
 };
 async function signOut(){if(!auth)return;if(!confirm('Выйти из аккаунта? Неотправленные сообщения в памяти будут потеряны.'))return;try{await authSDK.signOut(auth);await loadSession(null);}catch(err){notice(explain(err))}}
 // ----- Public usernames, linked atomically to a private Auth UID -----
@@ -140,7 +142,7 @@ function renderList(){
  $('searchWrap').style.display=['chats','groups'].includes(selectedTab)?'flex':'none';
  $('newBtn').style.display=['chats','groups'].includes(selectedTab)?'block':'none';
  if(selectedTab==='settings'){
-  $('list').innerHTML=`<div class="profile"><div class="profilehero"><div class="avatar green">${escapeHtml((profile?.displayName||'Я')[0].toUpperCase())}</div><h2>${escapeHtml(profile?.displayName||'Профиль')}</h2><p>@${escapeHtml(profile?.handle||'')}</p><p>${escapeHtml(auth?.currentUser?.email||'')}</p></div><button class="setting" id="themeSetting"><span>☾ &nbsp; Тема оформления<small>Светлая или тёмная</small></span><span class="pill">${document.body.classList.contains('light')?'Светлая':'Тёмная'}</span></button><button class="setting" id="renameSetting"><span>✎ &nbsp; Изменить имя<small>@имя останется прежним</small></span><span>›</span></button><button class="setting important" id="logoutSetting"><span>↪ &nbsp; Выйти из аккаунта<small>Потребуется войти по email</small></span><span>›</span></button><p class="contentNote">Сообщения Firestore хранятся в облаке и доступны участникам чата. Сквозное шифрование не используется.</p></div>`;
+  $('list').innerHTML=`<div class="profile"><div class="profilehero"><div class="avatar green" style="background:${avatarColor(profile?.displayName||'Я')}">${escapeHtml(initials(profile?.displayName||'Я'))}</div><h2>${escapeHtml(profile?.displayName||'Профиль')}</h2><p class="profile-handle">@${escapeHtml(profile?.handle||'')}</p><p>${escapeHtml(auth?.currentUser?.email||'')}</p></div><button class="setting" id="themeSetting"><span>☾ &nbsp; Тема оформления<small>Светлая или тёмная</small></span><span class="pill">${document.body.classList.contains('light')?'Светлая':'Тёмная'}</span></button><button class="setting" id="renameSetting"><span>✎ &nbsp; Редактировать профиль<small>Имя и уникальный никнейм</small></span><span>›</span></button><button class="setting important" id="logoutSetting"><span>↪ &nbsp; Выйти из аккаунта<small>Потребуется войти по email</small></span><span>›</span></button><p class="contentNote">Сообщения Firestore хранятся в облаке и доступны участникам чата. Сквозное шифрование не используется.</p></div>`;
   $('themeSetting').onclick=toggleTheme;$('logoutSetting').onclick=signOut;$('renameSetting').onclick=renameProfile;return;
  }
  if(selectedTab==='contacts'){
@@ -149,25 +151,40 @@ function renderList(){
   $('peopleInput').addEventListener('input',()=>{++searchRequest;$('personResult').replaceChildren();});
   $('peopleInput').addEventListener('keydown',e=>{if(e.key==='Enter')searchPerson()});return;
  }
+ if(!chatsConfirmed){
+  $('list').innerHTML=chatsError?`<div class="state-panel"><h2>Не удалось загрузить чаты</h2><p>${escapeHtml(chatsError)}</p><button id="retryChats" class="action primary">Повторить загрузку</button></div>`:'<div class="state-panel" role="status"><span class="state-spinner" aria-hidden="true"></span><h2>Загружаем чаты</h2><p>Подключаемся к вашим разговорам…</p></div>';
+  if(chatsError)$('retryChats').onclick=()=>{chatsError='';subscribeChats();renderList();};return;
+ }
  const filtered=sortedChats().filter(c=>selectedTab==='groups'?c.type==='group':true).filter(c=>chatName(c).toLocaleLowerCase('ru').includes(searchValue.toLocaleLowerCase('ru')));
- $('list').innerHTML=filtered.length?filtered.map(c=>`<button class="chatrow ${activeChat===c.id?'selected':''}" data-id="${escapeHtml(c.id)}"><div class="avatar ${c.type==='group'?'violet':'green'}">${escapeHtml(chatName(c).slice(0,1).toUpperCase())}</div><div class="chatmeta"><div class="chatline"><span class="chatname">${escapeHtml(chatName(c))}</span><span class="chatdate">${escapeHtml(dateText(c.updatedAt))}</span></div><div class="preview">${escapeHtml(visibleText(c.lastText||chatSub(c)))}</div></div></button>`).join(''):'<div class="emptySide">Здесь пока нет переписок.<br>Найди человека во вкладке «Люди» или нажми «+».</div>';
+ $('list').innerHTML=filtered.length?filtered.map(c=>`<button class="chatrow ${activeChat===c.id?'selected':''}" data-id="${escapeHtml(c.id)}"><div class="avatar ${c.type==='group'?'violet':'green'}" style="background:${avatarColor(chatName(c))}">${escapeHtml(initials(chatName(c)))}</div><div class="chatmeta"><div class="chatline"><span class="chatname">${escapeHtml(chatName(c))}</span><span class="chatdate">${escapeHtml(dateText(c.updatedAt))}</span></div><div class="preview">${escapeHtml(visibleText(c.lastText||chatSub(c)))}</div></div></button>`).join(''):(searchValue?'<div class="state-panel"><h2>Ничего не найдено</h2><p>Попробуйте другое имя в поиске.</p></div>':'<div class="state-panel"><img src="./assets/brand/icon.svg" alt=""><h2>Первый разговор — впереди</h2><p>Найдите человека по @никнейму во вкладке «Люди» или нажмите «+».</p></div>');
  document.querySelectorAll('.chatrow').forEach(b=>b.onclick=()=>openChat(b.dataset.id));
 }
-function applyTheme(){const light=localStorage.getItem('svyaz_v5_theme')==='light';document.body.classList.toggle('light',light);$('themeQuick').textContent=light?'☀':'☾';document.querySelector('meta[name="theme-color"]').content=light?'#fff':'#0c1422';}
+function applyTheme(){const light=localStorage.getItem('svyaz_v5_theme')==='light';document.body.classList.toggle('light',light);$('themeQuick').textContent=light?'☀':'☾';document.querySelector('meta[name="theme-color"]').content=light?'#eef4fa':'#0b1422';}
 function toggleTheme(){localStorage.setItem('svyaz_v5_theme',document.body.classList.contains('light')?'dark':'light');applyTheme();renderList();}
-async function renameProfile(){
- if(!profile||!user)return;const uid=user.uid,token=userGeneration;
- const name=prompt('Новое отображаемое имя:',profile.displayName);if(name===null)return;const v=name.trim();
- if(!v||v.length>45){notice('Имя должно быть длиной от 1 до 45 символов');return;}
- try{await fs.updateDoc(fs.doc(db,'users',uid),{displayName:v});if(current(token,uid))notice('Имя обновлено');}
- catch(err){if(current(token,uid))notice(explain(err));}
+function renameProfile(){
+ if(!profile||!user)return;
+ $('editName').value=profile.displayName||'';$('editHandle').value=profile.handle||'';
+ $('editAvatar').textContent=initials(profile.displayName||'Я');$('editAvatar').style.background=avatarColor(profile.displayName||'Я');$('editError').textContent='';
+ $('editSave').disabled=false;$('editProfileDialog').showModal();
 }
+$('editName').oninput=()=>{$('editAvatar').textContent=initials($('editName').value);$('editAvatar').style.background=avatarColor($('editName').value);};
+$('editCancel').onclick=()=>$('editProfileDialog').close();
+$('editProfileForm').onsubmit=async event=>{
+ event.preventDefault();if(!user||$('editSave').disabled)return;
+ const uid=user.uid,token=userGeneration,name=$('editName').value,handle=$('editHandle').value;
+ $('editSave').disabled=true;$('editError').textContent='';
+ try{
+  await editProfile(fs,db,uid,name,handle);
+  if(current(token,uid)){$('editProfileDialog').close();notice('Профиль обновлён');}
+ }catch(error){if(current(token,uid))$('editError').textContent=explain(error);}
+ finally{if(current(token,uid))$('editSave').disabled=false;}
+};
 async function searchPerson(){
  const value=$('peopleInput').value,out=$('personResult'),token=userGeneration,uid=user?.uid,request=++searchRequest;
  out.className='inlineStatus';out.textContent='Ищем…';
  try{const p=await findHandle(value);if(!current(token,uid)||request!==searchRequest||!out.isConnected)return;
   if(p.uid===uid){out.textContent='Это твой собственный профиль.';return;}
-  out.innerHTML=`<div class="searchResult"><strong>${escapeHtml(p.displayName)}</strong><div class="handle">@${escapeHtml(p.handle)}</div><button class="personButton" id="personChat">Начать личную переписку</button></div>`;
+  out.innerHTML=`<div class="searchResult"><div class="avatar" style="background:${avatarColor(p.displayName)}">${escapeHtml(initials(p.displayName))}</div><strong>${escapeHtml(p.displayName)}</strong><div class="handle">@${escapeHtml(p.handle)}</div><button class="personButton" id="personChat">Написать сообщение</button></div>`;
   $('personChat').onclick=async()=>{try{await createPrivate(p)}catch(e){if(current(token,uid))notice(explain(e))}};
  }catch(err){if(current(token,uid)&&request===searchRequest&&out.isConnected){out.textContent=explain(err);out.className='inlineStatus statusError';}}
 }
@@ -177,12 +194,13 @@ function subscribeChats(){
  unsubChats=fs.onSnapshot(q,{includeMetadataChanges:true},snap=>{
   if(!current(token,uid))return;if(snap.metadata.isFromCache&&!chatsConfirmed)return;
   if(!snap.metadata.isFromCache)chatsConfirmed=true;
+  chatsError='';
   chats=snap.docs.map(d=>({id:d.id,...d.data()})).filter(c=>Array.isArray(c.members)&&c.members.includes(uid));
   if(activeChat&&!chats.some(c=>c.id===activeChat))closeConversation();
   const wanted=new Set([uid,...chats.flatMap(c=>c.members)]);
   for(const [peer,stop] of profileSubscriptions)if(!wanted.has(peer)){stop();profileSubscriptions.delete(peer);profileCache.delete(peer);}
   wanted.forEach(peer=>watchProfile(peer,token,uid));renderLiveList();if(activeChat)updateChatHeader();
- },err=>{if(!current(token,uid))return;chatsConfirmed=false;notice(explain(err));if(err.code==='permission-denied'){chats=[];closeConversation();renderLiveList();}});
+ },err=>{if(!current(token,uid))return;chatsConfirmed=false;chatsError=explain(err);notice(chatsError);renderLiveList();if(err.code==='permission-denied'){chats=[];closeConversation();renderLiveList();}});
 }
 async function createPrivate(person){
  if(!user||person.uid===user.uid)return;
@@ -218,7 +236,7 @@ $('createForm').onsubmit=async e=>{
 $('newBtn').onclick=()=>openModal(selectedTab==='groups'?'group':'private');
 document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{++searchRequest;closeConversation();selectedTab=b.dataset.tab;searchValue='';$('search').value='';renderList();});
 $('search').oninput=()=>{searchValue=$('search').value;renderList();};$('themeQuick').onclick=toggleTheme;
-function updateChatHeader(){const c=chats.find(x=>x.id===activeChat);if(!c)return;$('convName').textContent=chatName(c);$('convStatus').textContent=chatSub(c);$('convAvatar').textContent=chatName(c).slice(0,1).toUpperCase();}
+function updateChatHeader(){const c=chats.find(x=>x.id===activeChat);if(!c)return;$('convName').textContent=chatName(c);$('convStatus').textContent=chatSub(c);$('convAvatar').textContent=initials(chatName(c));$('convAvatar').style.background=avatarColor(chatName(c));}
 function openChat(id){
  const c=chats.find(x=>x.id===id);if(!c||!user)return;
  if(window.innerWidth<=700&&!history.state?.svyazChat)history.pushState({svyazChat:true},'');
